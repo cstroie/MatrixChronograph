@@ -48,7 +48,7 @@ const int LIGHT_PIN = A0;
 
 // Buttons
 Button btn1(BTN1_PIN);
-Button btn2(BTN1_PIN);
+Button btn2(BTN2_PIN);
 Button intsq(INTSQ_PIN);
 
 // Choose the IR protocol of your remote
