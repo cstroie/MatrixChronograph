@@ -72,11 +72,20 @@ uint32_t brgtCheckWait  = 100UL;
 
 // Display modes
 enum      mtxModes {MODE_HHMM, MODE_SS, MODE_DDMM, MODE_YY,
-                    MODE_TEMP, MODE_VCC, MODE_MCU, MODE_ALL
+                    MODE_TEMP, MODE_VCC, MODE_MCU, MODE_SET_TIME, MODE_SET_DATE, MODE_ALL
                    };
 uint8_t   mtxMode       = MODE_HHMM;                            // Initial mode
 uint32_t  mtxModeUntil  = 0UL;                                  // Expiration time, 0 is never
 uint32_t  mtxModeWait   = 10000UL;                              // Expiration interval
+
+// Time setting variables
+uint8_t   setHours      = 0;
+uint8_t   setMinutes    = 0;
+uint8_t   setDay        = 0;
+uint8_t   setMonth      = 0;
+uint16_t  setYear       = 0;
+uint8_t   setTimeField  = 0;                                    // 0=hours, 1=minutes
+uint8_t   setDateField  = 0;                                    // 0=day, 1=month, 2=year
 
 // Define the configuration type
 struct cfgEE_t {
@@ -699,6 +708,42 @@ void showModeVers() {
   }
   // Print on framebuffer, right-aligned
   mtx.fbPrint(data, i, mtx.RIGHT);
+}
+
+/**
+  Display time setting mode
+*/
+void showSetTime(uint8_t hh, uint8_t mm) {
+  // Convert hhmm to unpacked BCD, 4 digits
+  uint8_t HHMM[4] = {hh / 10, hh % 10, mm / 10, mm % 10};
+  // Create a new array, containing the hours (2 digits), the colon symbol and
+  // the minutes (2 digits)
+  uint8_t data[] = {HHMM[0], HHMM[1], 0x0A, HHMM[2], HHMM[3]};
+  
+  // Add indicator for which field is being edited
+  if (setTimeField == 0) {
+    // Blink hours (we'll just show them normally for now)
+  } else {
+    // Blink minutes (we'll just show them normally for now)
+  }
+  
+  // Print on framebuffer
+  mtx.fbPrint(data, sizeof(data) / sizeof(*data));
+}
+
+/**
+  Display date setting mode
+*/
+void showSetDate(uint8_t day, uint8_t month, uint16_t year) {
+  if (setDateField == 2) {
+    // Show year
+    uint8_t data[] = {year / 1000, (year % 1000) / 100, (year % 100) / 10, year % 10};
+    mtx.fbPrint(data, sizeof(data) / sizeof(*data));
+  } else {
+    // Show day and month
+    uint8_t data[] = {day / 10, day % 10, 0x0B, month / 10, month % 10};
+    mtx.fbPrint(data, sizeof(data) / sizeof(*data));
+  }
 }
 
 /**
@@ -1533,8 +1578,32 @@ void loop() {
 
   // Check the buttons and change the display mode
   if (btn1.pressed()) {
-    // Display the next mode
-    mtxNextMode();
+    // If we're in time/date setting mode, adjust values
+    if (mtxMode == MODE_SET_TIME) {
+      if (setTimeField == 0) {
+        // Adjust hours
+        setHours = (setHours + 1) % 24;
+      } else {
+        // Adjust minutes
+        setMinutes = (setMinutes + 1) % 60;
+      }
+      showSetTime(setHours, setMinutes);
+    } else if (mtxMode == MODE_SET_DATE) {
+      if (setDateField == 0) {
+        // Adjust day (1-31)
+        setDay = (setDay % 31) + 1;
+      } else if (setDateField == 1) {
+        // Adjust month (1-12)
+        setMonth = (setMonth % 12) + 1;
+      } else {
+        // Adjust year (2000-2099)
+        setYear = (setYear < 2099) ? setYear + 1 : 2000;
+      }
+      showSetDate(setDay, setMonth, setYear);
+    } else {
+      // Display the next mode
+      mtxNextMode();
+    }
   }
 
   // Display, check once in a while or force
@@ -1558,6 +1627,12 @@ void loop() {
         break;
       case MODE_MCU:  // MCU temperature
         showModeMCU();
+        break;
+      case MODE_SET_TIME:  // Set time
+        showSetTime(setHours, setMinutes);
+        break;
+      case MODE_SET_DATE:  // Set date
+        showSetDate(setDay, setMonth, setYear);
         break;
       default:        // Hours and minutes
         showModeHHMM();
