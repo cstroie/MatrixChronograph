@@ -367,66 +367,83 @@ bool DS3231::setHours(int8_t dir, bool readRTC) {
 }
 
 /**
-  Determine the day of the week using the Tomohiko Sakamoto's method
+  Determine the day of the week using the Tomohiko Sakamoto's algorithm
 
-  @param y year  >1752
-  @param m month 1..12
-  @param d day   1..31
-  @return day of the week, 0..6 (Sun..Sat)
-*/
-uint8_t DS3231::getDOW(uint16_t year, uint8_t month, uint8_t day) {
-  uint8_t t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
-  year -= month < 3;
-  return (year + year / 4 - year / 100 + year / 400 + t[month - 1] + day) % 7;
-}
-
-/**
-  Check if a specified date observes DST, according to
-  the time changing rules in Europe:
-
-    start: last Sunday in March,   0300 -> 0400
-    end:   last Sunday in October, 0400 -> 0300
+  This efficient algorithm calculates the day of the week for any Gregorian
+  calendar date. It works by using a lookup table for month offsets and
+  applying the mathematical formula for the Gregorian calendar.
 
   @param year  year  >1752
   @param month month 1..12
   @param day   day   1..31
-  @return bool DST yes or no
+  @return day of the week, 0..6 (Sun..Sat)
+*/
+uint8_t DS3231::getDOW(uint16_t year, uint8_t month, uint8_t day) {
+  // Month offset lookup table for Sakamoto's algorithm
+  uint8_t t[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+  // Adjust year for January and February (treat as months 13,14 of previous year)
+  year -= month < 3;
+  // Apply Sakamoto's formula
+  return (year + year / 4 - year / 100 + year / 400 + t[month - 1] + day) % 7;
+}
+
+/**
+  Check if a specified date observes DST according to European rules
+
+  European Daylight Saving Time rules:
+    - Start: Last Sunday in March at 01:00 UTC (02:00 CET -> 03:00 CEST)
+    - End:   Last Sunday in October at 01:00 UTC (03:00 CEST -> 02:00 CET)
+  
+  This function determines if a given date/time is in the DST period by:
+  1. Calculating the last Sunday of March and October
+  2. Comparing the given date to these transition dates
+
+  @param year  year  >1752
+  @param month month 1..12
+  @param day   day   1..31
+  @param hour  hour  0..23 (used for precise transition timing)
+  @return bool DST in effect (true) or standard time (false)
 */
 bool DS3231::dstCheck(uint16_t year, uint8_t month, uint8_t day, uint8_t hour) {
-  // Get the last Sunday in March
+  // Get the last Sunday in March (date of DST start)
   uint8_t dayBegin = 31 - getDOW(year, 3, 31);
-  //Serial.println(dayBegin);
-  // Get the last Sunday on October
+  // Get the last Sunday in October (date of DST end)
   uint8_t dayEnd = 31 - getDOW(year, 10, 31);
-  //Serial.println(dayEnd);
-  // Compute the day where DST changes, since we are checking only
-  // at 3 and 4'o clock, this is enough
-  return (month > 3   and month < 10) or                      // Summer
-         (month == 3  and day >  dayBegin) or                 // March
-         (month == 3  and day == dayBegin and hour >= 3) or
-         (month == 10 and day <  dayEnd) or                   // October
-         (month == 10 and day == dayEnd and hour < 4);
+  
+  // Determine if date is in DST period:
+  return (month > 3   and month < 10) or                      // Definitively summer months
+         (month == 3  and day >  dayBegin) or                 // March after DST start
+         (month == 3  and day == dayBegin and hour >= 3) or   // DST start day after 3AM
+         (month == 10 and day <  dayEnd) or                   // October before DST end
+         (month == 10 and day == dayEnd and hour < 4);        // DST end day before 4AM
 }
 
 /**
   Get the DST adjustment for the specified time
 
+  This function determines if a DST transition should occur at the given
+  date/time by comparing the current DST state with the computed DST state.
+  It only checks for transitions at the specific hours when they occur:
+  - Hour 3:00 for spring transition (DST start)
+  - Hour 4:00 for autumn transition (DST end)
+
   @param year     year  >1752
   @param month    month 1..12
   @param day      day   1..31
-  @param hour     hour  3 or 4
-  @param dstFlag  current DST flag
-  @return int8_t adjustment amount
+  @param hour     hour  0..23
+  @param dstFlag  current DST flag (current state)
+  @return int8_t adjustment amount (+1 for spring forward, -1 for fall back, 0 for no change)
 */
 int8_t DS3231::dstAdjust(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, bool dstFlag) {
-  // We are operating only on hour 3 (4 if DST)
+  // We are operating only on hour 3 (4 if DST) when transitions occur
   if ((hour == 3 and not dstFlag) or (hour == 4 and dstFlag)) {
-    // Get the computed DST
+    // Get the computed DST state for this date/time
     bool dstNow = dstCheck(year, month, day, hour);
-    if      (dstNow and not dstFlag) return +1;
-    else if (not dstNow and dstFlag) return -1;
+    // Check if a transition is needed:
+    if      (dstNow and not dstFlag) return +1;  // Spring forward: +1 hour
+    else if (not dstNow and dstFlag) return -1;  // Fall back: -1 hour
   }
-  // No adjustment
+  // No adjustment needed
   return 0;
 }
 

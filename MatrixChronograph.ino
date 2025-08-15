@@ -711,10 +711,17 @@ void showModeVers() {
 }
 
 /**
-  Display time setting mode
+  Display time setting mode with visual field indication
+
+  This function shows the current time setting values on the display with
+  the active field (hours or minutes) visually indicated. In a future
+  implementation, the active field could blink or be highlighted.
+
+  @param hh hours value to display (0-23)
+  @param mm minutes value to display (0-59)
 */
 void showSetTime(uint8_t hh, uint8_t mm) {
-  // Convert hhmm to unpacked BCD, 4 digits
+  // Convert hhmm to unpacked BCD, 4 digits for display
   uint8_t HHMM[4] = {hh / 10, hh % 10, mm / 10, mm % 10};
   // Create a new array, containing the hours (2 digits), the colon symbol and
   // the minutes (2 digits)
@@ -722,9 +729,9 @@ void showSetTime(uint8_t hh, uint8_t mm) {
   
   // Add indicator for which field is being edited
   if (setTimeField == 0) {
-    // Blink hours (we'll just show them normally for now)
+    // Hours field is active (could blink in future implementation)
   } else {
-    // Blink minutes (we'll just show them normally for now)
+    // Minutes field is active (could blink in future implementation)
   }
   
   // Print on framebuffer
@@ -732,15 +739,25 @@ void showSetTime(uint8_t hh, uint8_t mm) {
 }
 
 /**
-  Display date setting mode
+  Display date setting mode with field-specific formatting
+
+  This function displays either the day/month or year depending on which
+  field is currently being edited. The setDateField variable determines:
+  - 0: Editing day
+  - 1: Editing month  
+  - 2: Editing year
+
+  @param day day value to display (1-31)
+  @param month month value to display (1-12)
+  @param year year value to display (2000-2099)
 */
 void showSetDate(uint8_t day, uint8_t month, uint16_t year) {
   if (setDateField == 2) {
-    // Show year
+    // Show year as 4-digit number
     uint8_t data[] = {year / 1000, (year % 1000) / 100, (year % 100) / 10, year % 10};
     mtx.fbPrint(data, sizeof(data) / sizeof(*data));
   } else {
-    // Show day and month
+    // Show day and month in DD.MM format
     uint8_t data[] = {day / 10, day % 10, 0x0B, month / 10, month % 10};
     mtx.fbPrint(data, sizeof(data) / sizeof(*data));
   }
@@ -1580,28 +1597,30 @@ void loop() {
   if (btn1.pressed()) {
     // If we're in time/date setting mode, adjust values
     if (mtxMode == MODE_SET_TIME) {
+      // Increment the currently selected time field
       if (setTimeField == 0) {
-        // Adjust hours
+        // Adjust hours with wraparound (0-23)
         setHours = (setHours + 1) % 24;
       } else {
-        // Adjust minutes
+        // Adjust minutes with wraparound (0-59)
         setMinutes = (setMinutes + 1) % 60;
       }
       showSetTime(setHours, setMinutes);
     } else if (mtxMode == MODE_SET_DATE) {
+      // Increment the currently selected date field
       if (setDateField == 0) {
-        // Adjust day (1-31)
+        // Adjust day with simple wraparound (1-31)
         setDay = (setDay % 31) + 1;
       } else if (setDateField == 1) {
-        // Adjust month (1-12)
+        // Adjust month with wraparound (1-12)
         setMonth = (setMonth % 12) + 1;
       } else {
-        // Adjust year (2000-2099)
+        // Adjust year with bounds checking (2000-2099)
         setYear = (setYear < 2099) ? setYear + 1 : 2000;
       }
       showSetDate(setDay, setMonth, setYear);
     } else {
-      // Display the next mode
+      // Display the next mode in normal operation
       mtxNextMode();
     }
   }
@@ -1610,18 +1629,18 @@ void loop() {
     // If we're in time/date setting mode, switch fields or save
     if (mtxMode == MODE_SET_TIME) {
       if (setTimeField == 0) {
-        // Switch to minutes field
+        // Switch from hours to minutes field
         setTimeField = 1;
       } else {
         // Save time and return to normal mode
-        rtc.readTime(true); // Get current date
+        rtc.readTime(true); // Get current date to preserve it
         rtc.writeDateTime(0, setMinutes, setHours, rtc.d, rtc.m, rtc.Y);
         mtxSetMode(MODE_HHMM);
       }
       showSetTime(setHours, setMinutes);
     } else if (mtxMode == MODE_SET_DATE) {
       if (setDateField < 2) {
-        // Switch to next field
+        // Switch to next field (day -> month -> year)
         setDateField++;
       } else {
         // Save date and return to normal mode
@@ -1630,24 +1649,24 @@ void loop() {
       }
       showSetDate(setDay, setMonth, setYear);
     } else if (mtxMode == MODE_HHMM) {
-      // Enter time setting mode
+      // Enter time setting mode from HHMM display
       rtc.readTime(true);
       setHours = rtc.H;
       setMinutes = rtc.M;
-      setTimeField = 0;
+      setTimeField = 0; // Start with hours field
       mtxSetMode(MODE_SET_TIME);
       showSetTime(setHours, setMinutes);
     } else if (mtxMode == MODE_DDMM) {
-      // Enter date setting mode
+      // Enter date setting mode from DDMM display
       rtc.readTime(true);
       setDay = rtc.d;
       setMonth = rtc.m;
       setYear = rtc.Y;
-      setDateField = 0;
+      setDateField = 0; // Start with day field
       mtxSetMode(MODE_SET_DATE);
       showSetDate(setDay, setMonth, setYear);
     } else {
-      // Display the previous mode
+      // Display the previous mode in normal operation
       mtxPrevMode();
     }
   }

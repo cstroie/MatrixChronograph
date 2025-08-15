@@ -111,55 +111,66 @@ void DotMatrix::clear() {
 }
 
 /**
-  Load the specified font into RAM
+  Load the specified font into RAM and precompute character limits
 
-  @param font the font id
+  This function loads a font from PROGMEM into RAM and rotates each character
+  for proper display orientation. It also precomputes the left/right limits 
+  and width of each character for efficient rendering.
+
+  @param font the font id (0-14)
 */
 void DotMatrix::loadFont(uint8_t font) {
   uint8_t chrbuf[8] = {0};
   font %= fontCount;
   // Load each character into RAM
   for (int i = 0; i < fontChars; i++) {
-    // Load into temporary buffer
+    // Load into temporary buffer from PROGMEM
     memcpy_P(&chrbuf, &FONTS[font][i], 8);
-    // Rotate
+    // Rotate each character 90 degrees clockwise for proper orientation
+    // This converts from horizontal storage to vertical column format
     for (uint8_t j = 0; j < 8; j++) {
       for (uint8_t k = 0; k < 8; k++) {
+        // Shift the target column left and add the LSB from source
         FONT[i][7 - k] <<= 1;
         FONT[i][7 - k] |= (chrbuf[j] & 0x01);
+        // Shift the source right to process next bit
         chrbuf[j] >>= 1;
       }
     }
   }
-  // Get the limits of the digits (use character '8')
+  // Get the limits of the digits (use character '8' which has maximum width)
   chrLimits_t lmt = getLimits(0x08);
-  // And use it for all the digits
+  // And use it for all the digits (0-9) for consistent spacing
   for (uint8_t c = 0; c <= 9; c++)
     chrLimits[c] = lmt;
-  // Get the limits of all the other characters
+  // Get the limits of all the other characters individually
   for (uint8_t c = 0x0A; c < fontChars; c++)
     chrLimits[c] = getLimits(c);
 }
 
 /**
-  Get the character limits and width
+  Get the character limits and width by analyzing non-zero columns
 
-  @param the character to compute the limits and width for
-  @return the character limits struct
+  This function determines the leftmost and rightmost non-zero columns
+  in a character's bitmap to calculate the effective width and positioning.
+  This allows for more compact character rendering by ignoring empty columns.
+
+  @param ch the character to compute the limits and width for
+  @return the character limits struct with right, left, and width values
 */
 chrLimits_t DotMatrix::getLimits(uint8_t ch) {
   chrLimits_t lmt = {maxWidth, maxWidth, 0};
   // The characters are already rotated, just find the non-zero bytes
   for (uint8_t l = 0; l < maxWidth; l++) {
-    // Check for non-zero column
+    // Check for non-zero column (contains lit LEDs)
     if (FONT[ch][l] != 0) {
-      // Keep the rightmost limit
+      // Keep the rightmost limit (first non-zero column from left)
       if (lmt.right == maxWidth) lmt.right = l;
-      // Keep the leftmost limit
+      // Keep the leftmost limit (last non-zero column)
       lmt.left = l;
     }
   }
-  // If valid, compute the char width
+  // If valid (character has visible pixels), compute the char width
   if (lmt.right != maxWidth)
     lmt.width = lmt.left - lmt.right + 1;
   // Return the result
@@ -190,20 +201,25 @@ void DotMatrix::fbDisplay() {
 }
 
 /**
-  Print a valid character at the specified position
+  Print a valid character at the specified position in the framebuffer
 
-  @param pos position (rightmost)
-  @param digit the character/digit to print
-  @param alogn print alignment
+  This function renders a single character at a specific position in the
+  framebuffer by OR-ing the character's bitmap with existing framebuffer data.
+  It uses precomputed character limits to render only the visible portion
+  of the character for efficiency.
+
+  @param pos position (leftmost column) in framebuffer to start printing
+  @param digit the character/digit to print (0-15)
 */
 void DotMatrix::fbPrint(uint8_t pos, uint8_t digit) {
   // Print only if the character is valid
   if (digit < fontChars)
-    // Process each line of the character
+    // Process each column of the character using precomputed width
     for (uint8_t l = 0; l < chrLimits[digit].width; l++)
-      // Print only if inside framebuffer
+      // Print only if inside framebuffer bounds
       if (pos + l < maxFB)
-        // Print
+        // OR the character column data with existing framebuffer data
+        // l + chrLimits[digit].right adjusts for any leading empty columns
         fbData[pos + l] |= FONT[digit][l + chrLimits[digit].right] ;
 }
 
@@ -226,37 +242,44 @@ void DotMatrix::fbPrint(uint8_t* poss, uint8_t* chars, uint8_t len) {
 }
 
 /**
-  Print the characters, with auto positioning
+  Print the characters with automatic positioning and alignment
 
-  @param digit the characters array to print
+  This function calculates optimal positions for a string of characters
+  based on their individual widths and the specified alignment. It first
+  computes right-aligned positions, then adjusts for center or left alignment
+  as requested.
+
+  @param chars the characters array to print
   @param len number of characters
-  @param alogn print alignment
+  @param align print alignment (LEFT, CENTER, RIGHT)
 */
 void DotMatrix::fbPrint(uint8_t* chars, uint8_t len, uint8_t align) {
   uint8_t poss[maxFB] = {0};
   uint8_t pos = 0;
 
-  // First, compute the right-aligned positions
+  // First, compute the right-aligned positions by working backwards
+  // This ensures proper spacing between characters
   for (int8_t d = len - 1; d >= 0; d--) {
-    // Check if the character is valid and compute its print and next postions
+    // Check if the character is valid and compute its print and next positions
     // using its limits or use the limits of the digits by default
     uint8_t chr = chars[d] < fontChars ? chars[d] : 0;
     poss[d] = pos;
+    // Add character width plus one column spacing to position counter
     pos += chrLimits[chr].width + 1;
   }
 
-  // Alignment
+  // Apply alignment adjustment if text fits in framebuffer
   if (align == CENTER and pos < maxFB) {
     // Get the offset to center the text
     uint8_t offset = (maxFB - (pos - 1)) / 2;
-    // Add the offset to positions
+    // Add the offset to all positions
     for (uint8_t d = 0; d < len; d++)
       poss[d] += offset;
   }
   else if (align == LEFT and pos < maxFB) {
     // Get the offset to left-align the text
     uint8_t offset = maxFB - (pos - 1);
-    // Add the offset to positions
+    // Add the offset to all positions
     for (uint8_t d = 0; d < len; d++)
       poss[d] += offset;
   }
