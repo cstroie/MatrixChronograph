@@ -1313,7 +1313,7 @@ void doCommand() {
       Serial.println(F("Maximum auto brightness     *Hn   0..15"));
       Serial.println(F("Lowest auto brightness      *Ln   0..15"));
       Serial.println(F("MCU temperature correction  *Mn   -127..127   T+273.15-ADC"));
-      Serial.println(F("Display mode selection      *On   0..15       HHMM,SS,DDMM,YY,TMP,VCC,MCU"));
+      Serial.println(F("Display mode selection      *On   0..15       HHMM,SS,DDMM,YY,TMP,VCC,MCU,SET_TIME,SET_DATE"));
       Serial.println(F("First hour to beep          *Sn   0..23"));
       Serial.println(F("Time and date setting       *T=\"YYYY/MM/DD HH:MM:SS\""));
       Serial.println(F("Temperature units           *Uc   C/F"));
