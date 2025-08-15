@@ -1606,6 +1606,52 @@ void loop() {
     }
   }
 
+  if (btn2.pressed()) {
+    // If we're in time/date setting mode, switch fields or save
+    if (mtxMode == MODE_SET_TIME) {
+      if (setTimeField == 0) {
+        // Switch to minutes field
+        setTimeField = 1;
+      } else {
+        // Save time and return to normal mode
+        rtc.readTime(true); // Get current date
+        rtc.writeDateTime(0, setMinutes, setHours, rtc.d, rtc.m, rtc.Y);
+        mtxSetMode(MODE_HHMM);
+      }
+      showSetTime(setHours, setMinutes);
+    } else if (mtxMode == MODE_SET_DATE) {
+      if (setDateField < 2) {
+        // Switch to next field
+        setDateField++;
+      } else {
+        // Save date and return to normal mode
+        rtc.writeDateTime(rtc.S, rtc.M, rtc.H, setDay, setMonth, setYear);
+        mtxSetMode(MODE_HHMM);
+      }
+      showSetDate(setDay, setMonth, setYear);
+    } else if (mtxMode == MODE_HHMM) {
+      // Enter time setting mode
+      rtc.readTime(true);
+      setHours = rtc.H;
+      setMinutes = rtc.M;
+      setTimeField = 0;
+      mtxSetMode(MODE_SET_TIME);
+      showSetTime(setHours, setMinutes);
+    } else if (mtxMode == MODE_DDMM) {
+      // Enter date setting mode
+      rtc.readTime(true);
+      setDay = rtc.d;
+      setMonth = rtc.m;
+      setYear = rtc.Y;
+      setDateField = 0;
+      mtxSetMode(MODE_SET_DATE);
+      showSetDate(setDay, setMonth, setYear);
+    } else {
+      // Display the previous mode
+      mtxPrevMode();
+    }
+  }
+
   // Display, check once in a while or force
   if ((now > mtxDisplayUntil) or mtxDisplayNow) {
     mtxDisplayUntil = now + mtxDisplayWait;
